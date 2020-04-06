@@ -115,7 +115,7 @@ static T state_load_messages(T M, Connection_T c)
 			"LEFT JOIN %skeywords k ON m.status < %d and k.message_idnr = m.message_idnr "
 			//"WHERE m.mailbox_idnr = ? AND m.status IN (%d,%d,%d) "			//Cosmin Cioranu, no need to return deleted (final, based on status) messages
 			"WHERE m.mailbox_idnr = ? AND m.status < %d "
-			"GROUP BY m.message_idnr ",
+			"GROUP BY m.message_idnr "
 			"ORDER BY m.message_idnr ASC",
 			frag, DBPFX, DBPFX, DBPFX, 
 			MESSAGE_STATUS_DELETE,
