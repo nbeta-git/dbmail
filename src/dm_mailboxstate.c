@@ -116,7 +116,7 @@ static T state_load_messages(T M, Connection_T c)
 			//"WHERE m.mailbox_idnr = ? AND m.status IN (%d,%d,%d) "			//Cosmin Cioranu, no need to return deleted (final, based on status) messages
 			"WHERE m.mailbox_idnr = ? AND m.status < %d "
 			"GROUP BY m.message_idnr ",
-			//"ORDER BY message_idnr ASC",
+			"ORDER BY message_idnr ASC",
 			frag, DBPFX, DBPFX, DBPFX, 
 			MESSAGE_STATUS_DELETE,
 			//MESSAGE_STATUS_NEW, MESSAGE_STATUS_SEEN, MESSAGE_STATUS_DELETE);		//Cosmin Cioranu,no need to return deleted (final, based on status) messages
