@@ -1000,13 +1000,7 @@ GList * g_tree_values(GTree *tree)
 }
 
 
-/*
- * boolean merge of two GTrees. The result is stored in GTree *a.
- * the state of GTree *b is undefined: it may or may not have been changed, 
- * depending on whether or not key/value pairs were moved from b to a.
- * Both trees are safe to destroy afterwards, assuming g_tree_new_full was used
- * for their construction.
- */
+
 static gboolean traverse_tree_merger(gpointer key, gpointer value UNUSED, tree_merger_t **merger)
 {
 	tree_merger_t *t = *(tree_merger_t **)merger;
@@ -1027,7 +1021,13 @@ static gboolean traverse_tree_merger(gpointer key, gpointer value UNUSED, tree_m
 
 	return FALSE;
 }
-
+/*
+ * boolean merge of two GTrees. The result is stored in GTree *a.
+ * the state of GTree *b is undefined: it may or may not have been changed, 
+ * depending on whether or not key/value pairs were moved from b to a.
+ * Both trees are safe to destroy afterwards, assuming g_tree_new_full was used
+ * for their construction.
+ */
 int g_tree_merge(GTree *a, GTree *b, int condition)
 {
 	char *type = NULL;
@@ -1369,7 +1369,7 @@ static GList * imap_append_hash_as_string(GList *list, const char *type)
 	
 	if (! type){
 		//in case of tye null, it should return NIL, same process is applied at the end of this function
-		TRACE(TRACE_DEBUG, "content-type is null (missing): NIL");
+		TRACE(TRACE_DEBUG, "hash_as_string: is null (missing): NIL");
 		list = g_list_append_printf(list, "NIL");
 		return list;
 	}
@@ -1400,8 +1400,8 @@ static GList * imap_append_hash_as_string(GList *list, const char *type)
 	int offset = 0;
 	int inname = 1;
 	TRACE(TRACE_DEBUG, "analyse [%s]", head);
-	while (head && maxSize>0) {
-		//hard protection, preventing going maxsize
+	while (head && maxSize>=0) {
+		//hard protection, preventing going maxsize, until the \0
 		maxSize--;
 		curr = head[offset];
 		if ((! curr) && (offset==0))
@@ -1461,13 +1461,13 @@ static GList * imap_append_hash_as_string(GList *list, const char *type)
 
 	if (l) {
 		char *s = dbmail_imap_plist_as_string(l);
-		TRACE(TRACE_DEBUG, "plist from content-type: %s", s);
+		TRACE(TRACE_DEBUG, "hash_as_string: from %s => %s", type, s);
 		list = g_list_append_printf(list, "%s", s);
 		g_free(s);
 		
 		g_list_destroy(l);
 	} else {
-		TRACE(TRACE_DEBUG, "plist from content-type: NIL");
+		TRACE(TRACE_DEBUG, "hash_as_string: from %s => NIL",type);
 		list = g_list_append_printf(list, "NIL");
 	}
 	

@@ -201,7 +201,15 @@ int db_connect(void)
 	if (strlen(db_params.dburi) != 0) {
 		uri = g_string_new("");
 		g_string_append_printf(uri,"%s", db_params.dburi);
-		g_string_append_printf(uri, "&application-name=%s", server_conf ? server_conf->process_name : "dbmail_client");
+		//add application-name to the uri, only if application-name parameter was not added.
+		if ( !strstr(uri->str,"application-name") ){
+		    //If it already has parameters then add it with "&" otherwise start adding them with "?"
+		    if ( strchr(uri->str,'?') ){
+				g_string_append_printf(uri, "&application-name=%s", server_conf ? server_conf->process_name : "dbmail_client");
+		    }else{
+				g_string_append_printf(uri, "?application-name=%s", server_conf ? server_conf->process_name : "dbmail_client");
+		    }
+		}
 		TRACE(TRACE_DEBUG,"dburi: %s", uri->str);
 		dburi = URL_new(uri->str);
 		g_string_free(uri,TRUE);
@@ -1075,7 +1083,7 @@ int db_get_physmessage_id(uint64_t message_idnr, uint64_t * physmessage_id)
 {
 	PreparedStatement_T stmt;
 	Connection_T c;
-       	ResultSet_T r; 
+	ResultSet_T r; 
 	volatile int t = DM_SUCCESS;
 	assert(physmessage_id != NULL);
 	*physmessage_id = 0;
@@ -1090,6 +1098,7 @@ int db_get_physmessage_id(uint64_t message_idnr, uint64_t * physmessage_id)
 
 		if (db_result_next(r))
 			*physmessage_id = db_result_get_u64(r, 0);
+		//TRACE(TRACE_DEBUG,"Retrieved [%" PRIu64 "]",*physmessage_id);
 	CATCH(SQLException)
 		LOG_SQLERROR;
 		t = DM_EQUERY;
