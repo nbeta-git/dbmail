@@ -321,10 +321,10 @@ char * dbmail_mailbox_orderedsubject(DbmailMailbox *self)
 				"LEFT JOIN %sheadername n ON h.headername_id = n.id "
 				"LEFT JOIN %sheadervalue v ON h.headervalue_id = v.id "
 				"WHERE m.mailbox_idnr=? "
-				"AND n.headername = 'subject' AND m.status IN (%d,%d) "
+				"AND n.headername = 'subject' AND m.status < %d "
 				"GROUP BY v.sortfield",
 				DBPFX, DBPFX, DBPFX, DBPFX,
-				MESSAGE_STATUS_NEW, MESSAGE_STATUS_SEEN);
+				MESSAGE_STATUS_DELETE);
 		db_stmt_set_u64(stmt, 1, self->id);
 		r = db_stmt_query(stmt);
 
@@ -359,10 +359,10 @@ char * dbmail_mailbox_orderedsubject(DbmailMailbox *self)
 				"LEFT JOIN %sheadername n ON h.headername_id = n.id "
 				"LEFT JOIN %sheadervalue v ON h.headervalue_id = v.id "
 				"WHERE m.mailbox_idnr = ? "
-				"AND n.headername = 'subject' AND m.status IN (%d,%d) "
+				"AND n.headername = 'subject' AND m.status < %d "
 				"ORDER BY v.sortfield, v.datefield",
 				DBPFX, DBPFX, DBPFX, DBPFX,
-				MESSAGE_STATUS_NEW, MESSAGE_STATUS_SEEN);
+				MESSAGE_STATUS_DELETE);
 		db_stmt_set_u64(stmt, 1, self->id);
 		r = db_stmt_query(stmt);
 
@@ -411,6 +411,7 @@ char * dbmail_mailbox_orderedsubject(DbmailMailbox *self)
  */
 char * dbmail_mailbox_ids_as_string(DbmailMailbox *self, gboolean uid, const char *sep) 
 {
+	TRACE(TRACE_DEBUG, "Call: dbmail_mailbox_ids_as_string");
 	GString *t;
 	gchar *s = NULL;
 	GList *l = NULL, *h = NULL;
@@ -1159,6 +1160,7 @@ int dbmail_mailbox_build_imap_search(DbmailMailbox *self, String_T *search_keys,
 
 static gboolean _do_sort(GNode *node, DbmailMailbox *self)
 {
+	TRACE(TRACE_DEBUG, "Call: _do_sort");
 	GString *q;
 	uint64_t tid, *id;
 	Connection_T c; ResultSet_T r; volatile int t = FALSE;
@@ -1175,9 +1177,9 @@ static gboolean _do_sort(GNode *node, DbmailMailbox *self)
 	g_string_printf(q, "SELECT m.message_idnr FROM %smessages m "
 			"LEFT JOIN %sphysmessage p ON m.physmessage_id=p.id "
 			"%s"
-			"WHERE m.mailbox_idnr = %" PRIu64 " AND m.status IN (%d,%d) "
+			"WHERE m.mailbox_idnr = %" PRIu64 " AND m.status < %d "
 			"ORDER BY %smessage_idnr", DBPFX, DBPFX, s->table,
-			dbmail_mailbox_get_id(self), MESSAGE_STATUS_NEW, MESSAGE_STATUS_SEEN, s->order);
+			dbmail_mailbox_get_id(self), MESSAGE_STATUS_DELETE, s->order);
 
         if (self->sorted) {
                 g_list_destroy(self->sorted);
@@ -1215,8 +1217,10 @@ static gboolean _do_sort(GNode *node, DbmailMailbox *self)
 	
 	return FALSE;
 }
+
 static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 {
+	TRACE(TRACE_DEBUG, "Call: mailbox_search");
 	uint64_t *k, *v, *w;
 	uint64_t id;
 	char gt_lt = 0;
@@ -1225,6 +1229,14 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 	Connection_T c; ResultSet_T r; PreparedStatement_T st;
 	GTree *ids;
 	volatile char *inset = NULL;
+	/* helper for some operations in TREE mode search */
+	char *cond=NULL;
+	cond=malloc(30);
+	memset(cond,0,30);
+	int IST_DATE_COND =0 ;
+	/* if the query will be performed in sql mode */
+	int sql;
+	sql=1;
 	
 	GString *t;
 	String_T q;
@@ -1240,6 +1252,8 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 	c = db_con_get();
 	t = g_string_new("");
 	q = p_string_new(self->pool, "");
+	s->found = g_tree_new_full((GCompareDataFunc)ucmpdata,NULL,(GDestroyNotify)uint64_free, (GDestroyNotify)uint64_free);
+	
 	TRY
 		switch (s->type) {
 			case IST_HDRDATE_ON:
@@ -1271,7 +1285,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 						"LEFT JOIN %sheader h USING (physmessage_id) "
 						"LEFT JOIN %sheadername n ON h.headername_id = n.id "
 						"LEFT JOIN %sheadervalue v ON h.headervalue_id = v.id "
-						"WHERE m.mailbox_idnr=? AND m.status IN (?,?) "
+						"WHERE m.mailbox_idnr=? AND m.status < ? "
 						"%s "
 						"AND n.headername = 'date' "
 						"AND %s %s %s ORDER BY message_idnr", 
@@ -1281,8 +1295,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 				st = db_stmt_prepare(c, p_string_str(q));
 				db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-				db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-				db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
+				db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
 			}
 
 			break;
@@ -1293,7 +1306,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 					"LEFT JOIN %sheader h USING (physmessage_id) "
 					"LEFT JOIN %sheadername n ON h.headername_id = n.id "
 					"LEFT JOIN %sheadervalue v ON h.headervalue_id = v.id "
-					"WHERE mailbox_idnr=? AND status IN (?,?) "
+					"WHERE mailbox_idnr=? AND status < ? "
 					"%s "
 					"AND n.headername = '%s' AND v.headervalue %s ? "
 					"ORDER BY message_idnr",
@@ -1303,12 +1316,11 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 			st = db_stmt_prepare(c, p_string_str(q));
 			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
+			db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
 			memset(partial,0,sizeof(partial));
 			if (snprintf(partial, DEF_FRAGSIZE-1, "%%%s%%", s->search) < 0)
 				abort();
-			db_stmt_set_str(st, 4, partial);
+			db_stmt_set_str(st, 3, partial);
 
 			break;
 
@@ -1321,7 +1333,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 					"LEFT JOIN %sheader h ON h.physmessage_id=p.id "
 					"LEFT JOIN %sheadervalue v ON h.headervalue_id=v.id "
 					"LEFT JOIN %smessages m ON m.physmessage_id=p.id "
-					"WHERE m.mailbox_idnr = ? AND m.status IN (?,?) "
+					"WHERE m.mailbox_idnr = ? AND m.status < ? "
 					"%s "
 					"AND (v.headervalue %s ? OR k.data %s ?) "
 					"ORDER BY m.message_idnr",
@@ -1332,31 +1344,14 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 			st = db_stmt_prepare(c, p_string_str(q));
 			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
+			db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
+			
 			memset(partial,0,sizeof(partial));
 			if (snprintf(partial, DEF_FRAGSIZE-1, "%%%s%%", s->search) < 0)
 				abort();
+			db_stmt_set_str(st, 3, partial);
 			db_stmt_set_str(st, 4, partial);
-			db_stmt_set_str(st, 5, partial);
 
-			break;
-				
-			case IST_IDATE:
-			p_string_printf(q, "SELECT message_idnr FROM %smessages m "
-					"LEFT JOIN %sphysmessage p ON m.physmessage_id=p.id "
-					"WHERE mailbox_idnr = ? AND status IN (?,?) "
-					"%s "
-					"AND %s "
-					"ORDER BY message_idnr", 
-					DBPFX, DBPFX, 
-					inset?inset:"",
-					s->search);
-
-			st = db_stmt_prepare(c, p_string_str(q));
-			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
 			break;
 			
 			case IST_DATA_BODY:
@@ -1366,7 +1361,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 					"LEFT JOIN %sphysmessage s ON l.physmessage_id=s.id "
 					"LEFT JOIN %smessages m ON m.physmessage_id=s.id "
 					"LEFT JOIN %smailboxes b ON m.mailbox_idnr = b.mailbox_idnr "
-					"WHERE b.mailbox_idnr=? AND m.status IN (?,?) "
+					"WHERE b.mailbox_idnr=? AND m.status < ? "
 					"%s "
 					"AND (l.part_key > 1 OR l.is_header=0) "
 					"AND %s %s ? "
@@ -1377,13 +1372,13 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 			st = db_stmt_prepare(c, p_string_str(q));
 			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
+			db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
+			
 			memset(partial,0,sizeof(partial));
 			if (snprintf(partial, DEF_FRAGSIZE-1, "%%%s%%", s->search) < 0)
 				abort();
 
-			db_stmt_set_str(st, 4, partial);
+			db_stmt_set_str(st, 3, partial);
 
 			break;
 
@@ -1396,7 +1391,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 			p_string_printf(q, "SELECT m.message_idnr FROM %smessages m "
 				"LEFT JOIN %sphysmessage p ON m.physmessage_id = p.id "
-				"WHERE m.mailbox_idnr = ? AND m.status IN (?,?) "
+				"WHERE m.mailbox_idnr = ? AND m.status < ? "
 				"%s "
 				"AND p.rfcsize %c ? "
 				"ORDER BY message_idnr", 
@@ -1406,9 +1401,8 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 			st = db_stmt_prepare(c, p_string_str(q));
 			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
-			db_stmt_set_u64(st, 4, s->size);
+			db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
+			db_stmt_set_u64(st, 3, s->size);
 
 			break;
 
@@ -1416,7 +1410,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 			case IST_UNKEYWORD:
 			p_string_printf(q, "SELECT m.message_idnr FROM %smessages m "
 					"JOIN %skeywords k ON m.message_idnr=k.message_idnr "
-					"WHERE mailbox_idnr=? AND status IN (?,?) "
+					"WHERE mailbox_idnr=? AND status < ? "
 					"%s "
 					"AND k.keyword = ? ORDER BY message_idnr",
 					DBPFX, DBPFX, 
@@ -1424,47 +1418,203 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 			st = db_stmt_prepare(c, p_string_str(q));
 			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
-			db_stmt_set_str(st, 4, s->search);
+			db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
+			db_stmt_set_str(st, 3, s->search);
 
 			break;
+			case IST_IDATE:
+				/* implemented search by state, avoiding queries in DB */
+					/*p_string_printf(q, "SELECT message_idnr FROM %smessages m "
+							"LEFT JOIN %sphysmessage p ON m.physmessage_id=p.id "
+							"WHERE mailbox_idnr = ? AND status < ? "
+							"%s "
+							"AND %s "
+							"ORDER BY message_idnr", 
+							DBPFX, DBPFX, 
+							inset?inset:"",
+							s->search);
 
+					st = db_stmt_prepare(c, p_string_str(q));
+					db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
+					db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
+					*/
+			//break;
 			default:
-			p_string_printf(q, "SELECT message_idnr FROM %smessages "
-				"WHERE mailbox_idnr = ? AND status IN (?,?) AND %s "
-				"ORDER BY message_idnr", DBPFX, 
-				s->search); // FIXME: Sometimes s->search is ""
+				if (strstr(s->search,"p.internal_date")){
+				    /* the equivalent in query is at IST_IDATE, see above */
+				    if (strstr(s->search,">")){
 
-			st = db_stmt_prepare(c, p_string_str(q));
-			db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
-			db_stmt_set_int(st, 2, MESSAGE_STATUS_NEW);
-			db_stmt_set_int(st, 3, MESSAGE_STATUS_SEEN);
+					    sql=0;
+					    IST_DATE_COND=14;	
+					    strcpy(cond, strstr(s->search,">")+1);
+					    TRACE(TRACE_DEBUG,"IST_IDATE [>]");
+				    }
+				    if (strstr(s->search,"=")){
+					    sql=0;
+					    IST_DATE_COND=15;	
+					    strcpy(cond, strstr(s->search,"=")+1);
+					    TRACE(TRACE_DEBUG,"IST_IDATE [=]");
+				    }
+				    if (strstr(s->search,"<")){
+					    sql=0;
+					    IST_DATE_COND=16;	
+					    strcpy(cond, strstr(s->search,"<")+1);
+					    TRACE(TRACE_DEBUG,"IST_IDATE [<]");
+				    }
+				    if (IST_DATE_COND!=0){
+					    p_trim(cond," '><="); //TRIMMING
+					    TRACE(TRACE_DEBUG,"IST_IDATE %s -> %s ", s->search,cond);
+				    }
+
+			    }
+
+			    if (strcmp(s->search,"answered_flag=1")==0){
+				    sql=0;
+				    IST_DATE_COND=1;
+			    }
+			    if (strcmp(s->search,"deleted_flag=1")==0){
+				    sql=0;
+				    IST_DATE_COND=2;
+			    }
+			    if (strcmp(s->search,"flagged_flag=1")==0){  
+				    sql=0;
+				    IST_DATE_COND=3; 
+			    }
+			    if (strcmp(s->search,"recent_flag=1")==0){
+				    sql=0;
+				    IST_DATE_COND=4; 
+			    }
+			    if (strcmp(s->search,"seen_flag=1")==0){
+				    sql=0;
+				    IST_DATE_COND=5; 
+			    }
+			    if (strcmp(s->search,"draft_flag=1")==0){
+				    sql=0;
+				    IST_DATE_COND=6; 
+			    }
+			    if (strcmp(s->search,"(seen_flag=0 AND recent_flag=1)")==0){
+				    sql=0;
+				    IST_DATE_COND=7; 
+			    }
+			    if (strcmp(s->search,"recent_flag=0")==0){
+				    sql=0;
+				    IST_DATE_COND=8; 
+			    }
+			    if (strcmp(s->search,"answered_flag=0")==0){
+				    sql=0;
+				    IST_DATE_COND=9; 
+			    }
+			    if (strcmp(s->search,"deleted_flag=0")==0){
+				    sql=0;
+				    IST_DATE_COND=10; 
+			    }
+			    if (strcmp(s->search,"flagged_flag=0")==0){
+				    sql=0;
+				    IST_DATE_COND=11; 
+			    }
+			    if (strcmp(s->search,"seen_flag=0")==0){
+				    sql=0;
+				    IST_DATE_COND=12; 
+			    }
+			    if (strcmp(s->search,"draft_flag=0")==0){
+				    sql=0;
+				    IST_DATE_COND=13; 
+			    } 
+			    //TRACE(TRACE_DEBUG,"IST_IDATE %s -> %d %d", s->search, sql,IST_DATE_COND);
+			    if (sql==0){
+				    int foundItems=0;
+				    ids = MailboxState_getIds(self->mbstate);
+				    GList *uids = g_tree_keys(ids);
+				    uids = g_list_first(uids);
+				    while (uids) {
+					    uint64_t id = *(uint64_t *)uids->data;
+					    /* no need to check it, is the same list*/
+					    /*if (! (w = g_tree_lookup(ids, &id))) {
+						    TRACE(TRACE_ERR, "key missing in ids: [%" PRIu64 "]", id);
+						    if (! g_list_next(uids)) break;
+						    uids = g_list_next(uids);
+						    continue;
+					    }*/
+					    MessageInfo *msginfo = g_tree_lookup(MailboxState_getMsginfo(self->mbstate),  &id);
+
+					    int found=0;
+					    switch(IST_DATE_COND){
+					    case 1: found=(int)(msginfo->flags[IMAP_FLAG_ANSWERED]==1);break;
+					    case 2: found=(int)(msginfo->flags[IMAP_FLAG_DELETED]==1);break;
+					    case 3: found=(int)(msginfo->flags[IMAP_FLAG_FLAGGED]==1);break;
+					    case 4: found=(int)(msginfo->flags[IMAP_FLAG_RECENT]==1);break;
+					    case 5: found=(int)(msginfo->flags[IMAP_FLAG_SEEN]==1);break;
+					    case 6: found=(int)(msginfo->flags[IMAP_FLAG_DRAFT]==1);break;
+					    case 7: found=(int)(msginfo->flags[IMAP_FLAG_SEEN]==0 && msginfo->flags[IMAP_FLAG_RECENT]==1);break;
+					    case 8: found=(int)(msginfo->flags[IMAP_FLAG_RECENT]==0);break;
+					    case 9: found=(int)(msginfo->flags[IMAP_FLAG_ANSWERED]==0);break;
+					    case 10: found=(int)(msginfo->flags[IMAP_FLAG_DELETED]==0);break;
+					    case 11: found=(int)(msginfo->flags[IMAP_FLAG_FLAGGED]==0);break;
+					    case 12: found=(int)(msginfo->flags[IMAP_FLAG_SEEN]==0);break;
+					    case 13: found=(int)(msginfo->flags[IMAP_FLAG_DRAFT]==0);break;
+					    case 14: found=(int)(strcmp(msginfo->internaldate,cond)>0);break;
+					    case 15: found=(int)(strcmp(msginfo->internaldate,cond)==0);break;
+					    case 16: found=(int)(strcmp(msginfo->internaldate,cond)<0);break;
+					    }
+					    if (found==1){
+						    //TRACE(TRACE_DEBUG, "Found (%d) %ld vs %ld ",IST_DATE_COND,id,msginfo->uid); 
+						    k = mempool_pop(small_pool, sizeof(uint64_t));
+						    v = mempool_pop(small_pool, sizeof(uint64_t));
+						    *k = id;
+						    *v = id;
+
+						    g_tree_insert(s->found, k, v);
+						    foundItems++;
+					    }
+					    if (! g_list_next(uids)) break; 
+					    uids = g_list_next(uids);
+				    }
+				    g_list_free(g_list_first(uids));
+				    if (cond){
+					    TRACE(TRACE_DEBUG,"IST_IDATE TREE found %s (%s)-> %d, found  %d", 
+						    s->search,
+							    cond, 
+								    IST_DATE_COND, 
+									    foundItems);
+				    }else{
+					    TRACE(TRACE_DEBUG,"IST_IDATE TREE found %s -> %d, found  %d", s->search,IST_DATE_COND, foundItems);
+				    }
+			    }else{
+				    p_string_printf(q, "SELECT message_idnr FROM %smessages "
+					    "WHERE mailbox_idnr = ? AND status < ? AND %s "
+					    "ORDER BY message_idnr", DBPFX, 
+					    s->search); // FIXME: Sometimes s->search is ""
+
+				    st = db_stmt_prepare(c, p_string_str(q));
+				    db_stmt_set_u64(st, 1, dbmail_mailbox_get_id(self));
+				    db_stmt_set_int(st, 2, MESSAGE_STATUS_DELETE);
+			    }
 			break;
 			
 		}
+		if (st && sql==1){
+			int foundItems=0;
+			r = db_stmt_query(st);
+			
 
-		r = db_stmt_query(st);
+			ids = MailboxState_getIds(self->mbstate);
+			while (db_result_next(r)) {
+				id = db_result_get_u64(r,0);
+				if (! (w = g_tree_lookup(ids, &id))) {
+					TRACE(TRACE_ERR, "key missing in ids: [%" PRIu64 "]\n", id);
+					continue;
+				}
+				assert(w);
 
-		s->found = g_tree_new_full((GCompareDataFunc)ucmpdata,NULL,(GDestroyNotify)uint64_free, (GDestroyNotify)uint64_free);
-
-		ids = MailboxState_getIds(self->mbstate);
-		while (db_result_next(r)) {
-			id = db_result_get_u64(r,0);
-			if (! (w = g_tree_lookup(ids, &id))) {
-				TRACE(TRACE_ERR, "key missing in ids: [%" PRIu64 "]\n", id);
-				continue;
+				k = mempool_pop(small_pool, sizeof(uint64_t));
+				v = mempool_pop(small_pool, sizeof(uint64_t));
+				*k = id;
+				*v = *w;
+				g_tree_insert(s->found, k, v);
+				foundItems++;
 			}
-			assert(w);
-
-			k = mempool_pop(small_pool, sizeof(uint64_t));
-			v = mempool_pop(small_pool, sizeof(uint64_t));
-			*k = id;
-			*v = *w;
-
-			g_tree_insert(s->found, k, v);
+			TRACE(TRACE_DEBUG,"IST_IDATE SQL found %s, found  %d", s->search, foundItems);
 		}
-
 		if (s->type == IST_UNKEYWORD) {
 			GTree *old = NULL;
 			GTree *invert = g_tree_new_full((GCompareDataFunc)ucmpdata,NULL,(GDestroyNotify)uint64_free, (GDestroyNotify)uint64_free);
@@ -1520,6 +1670,7 @@ static GTree * mailbox_search(DbmailMailbox *self, search_key *s)
 
 	p_string_free(q,TRUE);
 	g_string_free(t,TRUE);
+	free(cond);
 
 	return s->found;
 }
@@ -1798,6 +1949,7 @@ int dbmail_mailbox_sort(DbmailMailbox *self)
 
 int dbmail_mailbox_search(DbmailMailbox *self) 
 {
+	TRACE(TRACE_DEBUG, "Call: dbmail_mailbox_search");
 	GTree *ids;
 	if (! self->search) return 0;
 	
