@@ -69,7 +69,7 @@ unsigned find_end_of_header(const char *h)
 
 	l  = strlen(h);
 
-	while (h++ && i<=l) {
+	while (h++ && i<l) {
 		i++;
 		c = *h;
 		if (c == '\n' && ((p1 == '\n') || (p1 == '\r' && p2 == '\n'))) {
