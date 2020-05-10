@@ -1508,10 +1508,13 @@ static void mailbox_notify_expunge(ImapSession *self, MailboxState_T N)
 	
 	if (ids) {
 		uid = (uint64_t *)ids->data;
-		msn = g_tree_lookup(MailboxState_getIds(self->mailbox->mbstate), uid);
-		if (msn && (*msn > MailboxState_getExists(M))) {
-			TRACE(TRACE_DEBUG,"exists new [%d] old: [%d]", MailboxState_getExists(N), MailboxState_getExists(M)); 
-			dbmail_imap_session_buff_printf(self, "* %d EXISTS\r\n", MailboxState_getExists(M));
+		GTree * ids=MailboxState_getIds(self->mailbox->mbstate);
+		if (ids!=NULL){
+		    msn = g_tree_lookup(ids, uid);
+		    if (msn && (*msn > MailboxState_getExists(M))) {
+			    TRACE(TRACE_DEBUG,"exists new [%d] old: [%d]", MailboxState_getExists(N), MailboxState_getExists(M)); 
+			    dbmail_imap_session_buff_printf(self, "* %d EXISTS\r\n", MailboxState_getExists(M));
+		    }
 		}
 	}
 
