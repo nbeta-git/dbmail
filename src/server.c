@@ -203,10 +203,14 @@ void dm_thread_data_sendmessage(gpointer data)
 	dm_thread_data *D = (dm_thread_data *)data;
 	ImapSession *session = (ImapSession *)D->session;
 	String_T buf = D->data;
-
-	ci_write(session->ci, "%s", p_string_str(buf));
-
+	    
+	int result=ci_write(session->ci, "%s", p_string_str(buf));
 	p_string_free(buf, TRUE);
+	
+	if (result==1){
+	    /* it may be some other buffers to be written */
+	    ci_uncork(session->ci);
+	}
 }
 
 /* 
