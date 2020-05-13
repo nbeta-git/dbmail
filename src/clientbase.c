@@ -133,7 +133,7 @@ ClientBase_T * client_init(client_sock *c)
 	int serr;
 	ClientBase_T *client;
 	Mempool_T pool = c->pool;
-
+	TRACE(TRACE_DEBUG,"incoming connection client init");
 	client           = mempool_pop(pool, sizeof(ClientBase_T));
 	client->pool     = pool;
 	client->sock     = c;

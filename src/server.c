@@ -485,9 +485,12 @@ static void create_inet_socket(ServerConfig_T *conf, int i, gboolean ssl)
 			TRACE(TRACE_ERR, "could not create a socket of family [%d], socktype[%d], protocol [%d]", res->ai_family, res->ai_socktype, res->ai_protocol);
 			continue;
 		}
-		UNBLOCK(s);
-
+		
+		
 		dm_bind_and_listen(s, res->ai_addr, res->ai_addrlen, conf->backlog, ssl);
+		
+		UNBLOCK(s);
+		
 		if (ssl)
 			conf->ssl_listenSockets[conf->ssl_socketcount++] = s;
 		else
@@ -575,19 +578,14 @@ static void _sock_cb(int sock, short UNUSED event, void *arg, gboolean ssl)
 	struct event *ev = (struct event *)arg;
 
 #ifdef DEBUG
-	TRACE(TRACE_DEBUG,"%d %s%s%s%s, %p, ssl:%s", sock, 
+	TRACE(TRACE_DEBUG,"incoming for accept %d %s%s%s%s, %p, ssl:%s", sock, 
 			(event&EV_TIMEOUT) ? " timeout" : "", 
 			(event&EV_READ)    ? " read"    : "", 
 			(event&EV_WRITE)   ? " write"   : "", 
 			(event&EV_SIGNAL)  ? " signal"  : "", 
 			arg, ssl?"Y":"N");
 #endif
-	/* accept the active fd */
 
-	if (mainReload) {
-		config_read(configFile);
-		reopen_logs(server_conf);
-	}
 
 	if ((csock = accept(sock, NULL, NULL)) < 0) {
                 int serr=errno;
@@ -602,9 +600,18 @@ static void _sock_cb(int sock, short UNUSED event, void *arg, gboolean ssl)
                                 TRACE(TRACE_ERR, "%d:%s", serr, strerror(serr));
                                 break;
                 }
-                event_add(ev, NULL);
+                //event_add(ev, NULL);
                 return;
         }
+	/* set the client socket to unblock mode */
+	UNBLOCK(sock);
+	
+	/* accept the active fd */
+
+	if (mainReload) {
+		config_read(configFile);
+		reopen_logs(server_conf);
+	}
 	
 	pool = mempool_open();
 	c = mempool_pop(pool, sizeof(client_sock));
@@ -617,7 +624,7 @@ static void _sock_cb(int sock, short UNUSED event, void *arg, gboolean ssl)
 		mempool_push(pool, c, sizeof(client_sock));
 		mempool_close(&pool);
 		close(csock);
-		event_add(ev, NULL);
+		//event_add(ev, NULL);
 		return;
 	}
 
@@ -627,7 +634,7 @@ static void _sock_cb(int sock, short UNUSED event, void *arg, gboolean ssl)
 		mempool_push(pool, c, sizeof(client_sock));
 		mempool_close(&pool);
 		close(csock);
-		event_add(ev, NULL);
+		//event_add(ev, NULL);
 		return; // fatal 
 	}
 
@@ -637,12 +644,13 @@ static void _sock_cb(int sock, short UNUSED event, void *arg, gboolean ssl)
 	if (ssl) c->ssl_state = -1; // defer tls setup
 
 	TRACE(TRACE_INFO, "connection accepted");
-
+	
+	
 	/* streams are ready, perform handling */
 	server_conf->ClientHandler((client_sock *)c);
 
 	/* reschedule */
-	event_add(ev, NULL);
+	//event_add(ev, NULL);
 }
 
 static void server_sock_cb(int sock, short event, void *arg)
@@ -829,17 +837,21 @@ int server_run(ServerConfig_T *conf)
 			server_create_sockets(conf);
 			total = conf->socketcount + conf->ssl_socketcount;
 			evsock = g_new0(struct event *, total);
+			event_base_priority_init(evbase,2);
 			for (i = 0; i < conf->socketcount; i++) {
 				TRACE(TRACE_DEBUG, "Adding event for plain socket [%d] [%d/%d]", conf->listenSockets[i], i+1, total);
-				evsock[i] = event_new(evbase, conf->listenSockets[i], EV_READ, server_sock_cb, NULL);
-				event_assign(evsock[i], evbase, conf->listenSockets[i], EV_READ, server_sock_cb, evsock[i]);
+				evsock[i] = event_new(evbase, conf->listenSockets[i], EV_READ | EV_PERSIST, server_sock_cb, NULL);
+				event_assign(evsock[i], evbase, conf->listenSockets[i], EV_READ | EV_PERSIST, server_sock_cb, evsock[i]);
 				event_add(evsock[i], NULL);
+				event_priority_set(evsock[i],0);
+				
 			}
 			for (k = i, i = 0; i < conf->ssl_socketcount; i++, k++) {
 				TRACE(TRACE_DEBUG, "Adding event for ssl socket [%d] [%d/%d]", conf->ssl_listenSockets[i], k+1, total);
-				evsock[k] = event_new(evbase, conf->ssl_listenSockets[i], EV_READ, server_sock_ssl_cb, NULL);
-				event_assign(evsock[k], evbase, conf->ssl_listenSockets[i], EV_READ, server_sock_ssl_cb, evsock[k]);
+				evsock[k] = event_new(evbase, conf->ssl_listenSockets[i], EV_READ | EV_PERSIST, server_sock_ssl_cb, NULL);
+				event_assign(evsock[k], evbase, conf->ssl_listenSockets[i], EV_READ | EV_PERSIST, server_sock_ssl_cb, evsock[k]);
 				event_add(evsock[k], NULL);
+				event_priority_set(evsock[k],0);
 			}
 		}
 	}	
