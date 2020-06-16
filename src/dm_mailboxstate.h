@@ -28,6 +28,7 @@
 typedef struct T *T;
 
 extern T            MailboxState_new(Mempool_T pool, uint64_t id);
+extern T			MailboxState_update(Mempool_T pool, T OldM);
 
 extern int          MailboxState_info(T);
 extern int          MailboxState_count(T);
@@ -47,6 +48,9 @@ extern GTree *      MailboxState_getMsn(T);
 extern void         MailboxState_setId(T, uint64_t);
 extern uint64_t     MailboxState_getId(T);
 extern uint64_t     MailboxState_getSeq(T);
+extern void         MailboxState_resetSeq(T);
+extern uint64_t     MailboxState_resyncSeq(T);
+
 extern uint64_t     MailboxState_getUidnext(T);
 extern unsigned	    MailboxState_getExists(T);
 extern void	    MailboxState_setExists(T, unsigned);
